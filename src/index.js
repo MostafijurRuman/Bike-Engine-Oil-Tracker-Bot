@@ -1,4 +1,4 @@
-import http from 'http';
+import express from 'express';
 import { Telegraf, session } from 'telegraf';
 import { loadEnv } from './config/env.js';
 import { connectDb } from './db/connection.js';
@@ -212,25 +212,34 @@ bot.catch(async (err, ctx) => {
   }
 });
 
-// Ensure polling is clean (in case a webhook was set previously or another instance was running)
-await bot.telegram.deleteWebhook({ drop_pending_updates: true });
-
-await bot.launch();
-console.log('Bot started');
-
-process.once('SIGINT', () => bot.stop('SIGINT'));
-process.once('SIGTERM', () => bot.stop('SIGTERM'));
-
 const port = Number(process.env.PORT) || 3000;
 const host = '0.0.0.0';
-http
-  .createServer((req, res) => {
-    res.writeHead(200, { 'Content-Type': 'text/plain' });
-    res.end('ok');
-  })
-  .listen(port, host, () => {
-    console.log(`Health server listening on http://${host}:${port}`);
+const externalUrl = process.env.RENDER_EXTERNAL_URL;
+const useWebhook = Boolean(externalUrl);
+
+if (useWebhook) {
+  const webhookPath = `/bot${env.botToken}`;
+  const webhookUrl = `${externalUrl}${webhookPath}`;
+
+  await bot.telegram.setWebhook(webhookUrl, { drop_pending_updates: true });
+
+  const app = express();
+  app.use(express.json());
+  app.get('/', (_req, res) => res.send('ok'));
+  app.use(bot.webhookCallback(webhookPath));
+
+  app.listen(port, host, () => {
+    console.log(`Bot webhook listening on http://${host}:${port}${webhookPath}`);
   });
+} else {
+  // Ensure polling is clean (in case a webhook was set previously or another instance was running)
+  await bot.telegram.deleteWebhook({ drop_pending_updates: true });
+  await bot.launch();
+  console.log('Bot started with polling');
+
+  process.once('SIGINT', () => bot.stop('SIGINT'));
+  process.once('SIGTERM', () => bot.stop('SIGTERM'));
+}
 
 async function downloadFileBuffer(url) {
   const response = await fetch(url);
