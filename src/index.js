@@ -218,14 +218,15 @@ console.log('Bot started');
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
 
-const port = process.env.PORT || 3000;
+const port = Number(process.env.PORT) || 3000;
+const host = '0.0.0.0';
 http
   .createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/plain' });
     res.end('ok');
   })
-  .listen(port, () => {
-    console.log(`Health server listening on port ${port}`);
+  .listen(port, host, () => {
+    console.log(`Health server listening on http://${host}:${port}`);
   });
 
 async function downloadFileBuffer(url) {
