@@ -212,6 +212,9 @@ bot.catch(async (err, ctx) => {
   }
 });
 
+// Ensure polling is clean (in case a webhook was set previously or another instance was running)
+await bot.telegram.deleteWebhook({ drop_pending_updates: true });
+
 await bot.launch();
 console.log('Bot started');
 
