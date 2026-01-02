@@ -1,3 +1,4 @@
+import http from 'http';
 import { Telegraf, session } from 'telegraf';
 import { loadEnv } from './config/env.js';
 import { connectDb } from './db/connection.js';
@@ -216,6 +217,16 @@ console.log('Bot started');
 
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
+
+const port = process.env.PORT || 3000;
+http
+  .createServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/plain' });
+    res.end('ok');
+  })
+  .listen(port, () => {
+    console.log(`Health server listening on port ${port}`);
+  });
 
 async function downloadFileBuffer(url) {
   const response = await fetch(url);
