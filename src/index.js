@@ -25,6 +25,13 @@ bot.use((ctx, next) => {
   return next();
 });
 
+await bot.telegram.setMyCommands([
+  { command: 'start', description: 'বট শুরু করুন' },
+  { command: 'new_oil', description: 'নতুন ইঞ্জিন অয়েলের শুরু কিলোমিটার সেট করুন' },
+  { command: 'km', description: 'ম্যানুয়ালি কিলোমিটার পাঠান (যেমন: /km 12345)' },
+  { command: 'reset', description: 'সব তথ্য রিসেট করুন' },
+]);
+
 const OIL_THRESHOLDS = {
   warning: 800,
   critical: 1000,
@@ -92,6 +99,56 @@ bot.command(['km', 'reading'], async (ctx) => {
   }));
 });
 
+bot.action(/^confirm:(start|update):(\d+)$/, async (ctx) => {
+  await ctx.answerCbQuery();
+  const [, mode, kmStr] = ctx.match;
+  const km = Number(kmStr);
+  const telegramId = String(ctx.from.id);
+
+  if (!Number.isFinite(km)) {
+    await ctx.reply('রিডিং পড়া গেল না, আবার চেষ্টা করুন।');
+    return;
+  }
+
+  const user = await getOrCreateUser(telegramId);
+
+  if (mode === 'update' && user.oilStartKm == null) {
+    await ctx.reply('আগে /new_oil দিয়ে ইঞ্জিন অয়েলের শুরুর কিলোমিটার সেট করুন, তারপর /km বা ছবি পাঠান।');
+    return;
+  }
+
+  if (!isReadingPlausible(user, km)) {
+    await ctx.reply('এই রিডিংটা আগেরটার সাথে মেলে না। একটু দেখে সঠিক কিলোমিটার পাঠাবেন?');
+    return;
+  }
+
+  if (mode === 'start') {
+    const record = await setOilStart(telegramId, km);
+    ctx.session.awaitingOilStart = false;
+    await ctx.reply(
+      `ইঞ্জিন অয়েলের শুরুর কিলোমিটার ${formatKm(km)} ধরে রাখলাম। সময়: ${formatDateTime(record.oilStartAt)}। এরপর যেকোনো সময় নতুন ছবি বা /km দিলে আপডেট জানাব।`
+    );
+    return;
+  }
+
+  const updated = await updateReading(telegramId, km);
+  const distance = kmSinceOil(updated);
+  const status = computeOilStatus(distance);
+
+  await ctx.reply(buildStatusMessage({
+    kmReading: km,
+    distance,
+    status,
+    startAt: updated.oilStartAt,
+    updatedAt: updated.lastReadingAt,
+  }));
+});
+
+bot.action(/^manual:(start|update)$/, async (ctx) => {
+  await ctx.answerCbQuery();
+  await ctx.reply('ভুল মনে হলে /km 12345 এইভাবে নিজের কিলোমিটার লিখে পাঠান বা নতুন ছবি পাঠান।');
+});
+
 bot.on('photo', async (ctx) => {
   const telegramId = String(ctx.from.id);
   const awaitingOilStart = Boolean(ctx.session?.awaitingOilStart);
@@ -119,31 +176,26 @@ bot.on('photo', async (ctx) => {
       return;
     }
 
-    if (awaitingOilStart) {
-      const record = await setOilStart(telegramId, km);
-      ctx.session.awaitingOilStart = false;
-      await ctx.reply(
-        `ইঞ্জিন অয়েলের শুরুর কিলোমিটার ${formatKm(km)} ধরে রাখলাম। সময়: ${formatDateTime(record.oilStartAt)}। এরপর যেকোনো সময় নতুন ছবি দিলে আপডেট জানাব।`
-      );
-      return;
-    }
+    const mode = awaitingOilStart ? 'start' : 'update';
 
-    if (user.oilStartKm == null) {
+    if (!awaitingOilStart && user.oilStartKm == null) {
       await ctx.reply('আগে /new_oil দিয়ে ইঞ্জিন অয়েলের শুরুর কিলোমিটার সেট করুন, তারপর ছবি পাঠান।');
       return;
     }
 
-    const updated = await updateReading(telegramId, km);
-    const distance = kmSinceOil(updated);
-    const status = computeOilStatus(distance);
-
-    await ctx.reply(buildStatusMessage({
-      kmReading: km,
-      distance,
-      status,
-      startAt: updated.oilStartAt,
-      updatedAt: updated.lastReadingAt,
-    }));
+    await ctx.reply(
+      `OCR রিডিং: ${formatKm(km)} কিমি। এটি ঠিক আছে?`,
+      {
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: '✅ ঠিক আছে', callback_data: `confirm:${mode}:${km}` },
+              { text: '✏️ আমি নিজে লিখব (/km)', callback_data: `manual:${mode}` },
+            ],
+          ],
+        },
+      }
+    );
   } catch (err) {
     console.error('Photo handler error', err);
     await ctx.reply('দুঃখিত, ছবিটি প্রক্রিয়া করতে সমস্যা হচ্ছে। একটু পরে চেষ্টা করুন।');
