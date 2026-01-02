@@ -11,6 +11,14 @@ import {
   kmSinceOil,
   resetUserData,
 } from './services/userService.js';
+import http from 'http';
+// ...existing setup...
+await bot.launch();
+const port = process.env.PORT || 3000;
+http.createServer((req, res) => {
+  res.writeHead(200, { 'Content-Type': 'text/plain' });
+  res.end('ok');
+}).listen(port, () => console.log(`Health server on ${port}`));
 
 const env = loadEnv();
 await connectDb(env.mongoUri);
